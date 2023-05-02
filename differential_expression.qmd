@@ -1,6 +1,6 @@
 ---
-title: "DESeq Analysis"
-format: html
+title: "Differential Expression Analysis"
+format: pdf
 editor: source
 ---
 
@@ -11,10 +11,12 @@ First we will load the necessary libraries.
 library(tidyverse)
 library(DESeq2)
 library(magrittr)
+library(edgeR)
 ```
 
 
-The data has been extracted from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE226134 from the GSE226134_CK_10__norm.xlsx file. 
+The data has been extracted from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE226134 from the GSE226134_CK_10__norm.xlsx file. Lauren Mock selected for pre-treatment samples and performed data quality control.
+
 ```{r load data, cache=TRUE}
 data <- read.csv("data/input/JoinedWide.csv")
 
@@ -24,82 +26,117 @@ normCountData <- data[,59:ncol(data)]
 row.names(normCountData) <- data$SegmentDisplayName
 ```
 
+The data given is normalized, but the properties include a normalization factor that we can divide the data by to get to integer counts, which are required for DESeq. 
+```{r}
+intCountData <- normCountData / data$NormalizationFactor
+intCountData <- data.frame(lapply(intCountData, as.integer))
+```
 
 
+## DESeq
 
-Typical log-2 fold change scores are around 1.5-2. Here we need to drastically increase in order to be more specific for our results.
 
 ```{r}
-# Load the limma library
-library(limma)
-library(edgeR)
-design <- model.matrix(~property$METASTATIC)
-
-y <- DGEList(counts=t(normCountData),group=property$METASTATIC)
-keep <- filterByExpr(y)
-y <- y[keep,,keep.lib.sizes=FALSE]
-y <- calcNormFactors(y)
-v <- voom(y,design,plot=TRUE)
-
-fit <- lmFit(v,design)
-
-contrast <- c(-1,1)
-fit2 <- contrasts.fit(fit,contrast)
-fit2 <- eBayes(fit2)
-
-
-de_genes <- topTable(fit2,coef=1,number=Inf,adjust.method="fdr",sort.by="B",lfc=log2(250))
-
-threshold <- 0.05/9223
-sig_genes <- de_genes %>% filter(P.Value < threshold)
-nrow(sig_genes) #this is saying that all the genes are differentially expressed
+dds <- DESeqDataSetFromMatrix(countData = t(intCountData),
+                              colData = property,
+                              design = ~METASTATIC)
 ```
 
 
-To check our findings, we have use a t-test
+DESeq recommends that row counts are filtered to remove rows with very few reads, especially rows with less than 10 reads. Here it appears that we end up keeping all rows.
 
-```{r t tests}
-#reference from lab 7 
-boolM = property$METASTATIC=="True"
-ttests = apply(normCountData,2,function(x){t.test(x[boolM],x[!boolM])$p.value})
 
-ttests <- ttests %>% 
-  as.data.frame() %>%
-  set_colnames("pval") %>% 
-  rownames_to_column("gene") %>%
-  arrange(pval)
-
-pval_threshold <- 0.05/nrow(ttests) #bonferroni corrections
-
-DEGenes_ttest <- ttests %>% filter(pval < pval_threshold)
-nrow(DEGenes_ttest) #so there are 11 differentially expressed genes
+```{r}
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
 ```
 
-Similar to a t-test, we can use the non-parametric Wilcoxon rank sum test to see differentially expressed genes.
+To distinguish between metastatic and non-metatstatic samples we will relevel the factor where the reference is non-metastatic, here coded as false. 
 
-```{r wilcoxon tests, warning=FALSE}
-# Define a custom function to perform wilcoxon rank sum test and return p-value
-#reference from lab 7 
-boolM = property$METASTATIC=="True"
-wilcoxon_tests = apply(normCountData,2,function(x){wilcox.test(x[boolM],x[!boolM], alternative="two.sided")$p.value})
-
-wilcoxon_tests <- wilcoxon_tests %>% 
-  as.data.frame() %>%
-  set_colnames("pval") %>% 
-  rownames_to_column("gene") %>%
-  arrange(pval)
-
-pval_threshold <- 0.05/nrow(wilcoxon_tests) #bonferroni corrections
-
-DEGenes_wilcoxon_tests <- wilcoxon_tests %>% filter(pval < pval_threshold)
-nrow(DEGenes_wilcoxon_tests) #so there are 2 differentially expressed genes
+```{r}
+dds$METASTATIC <- relevel(dds$METASTATIC, ref = "False")
 
 ```
 
-
-```{r compare results}
-DEGenes_wilcoxon_tests$gene %in% DEGenes_ttest$gene
-DEGenes_ttest$gene %in% row.names(sig_genes)
-DEGenes_wilcoxon_tests$gene %in% row.names(sig_genes)
+Next we will run DESeq to get the differentially expressed genes.
+```{r}
+dds <- DESeq(dds)
+adj_pval_threshold <- 0.01
+res <- results(dds, alpha = adj_pval_threshold)
+summary(res)
+resultsNames(dds)
+DESeq2::plotMA(res)
+resOrdered <- res[order(res$padj),]
+resSig <- subset(resOrdered, padj < 0.01)
+gene_names <- rownames(resSig)
+for (gene in gene_names) {
+  cat(gene, "\n")
+} #running these genes through ShinyGO shows cancer and metabolism pathways http://bioinformatics.sdstate.edu/go/
 ```
+
+```{r}
+write.csv(as.data.frame(resOrdered), 
+          file="metastasis_results.csv")
+```
+
+
+
+
+
+
+
+
+
+
+## EdgeR
+
+Reference: https://web.stanford.edu/class/bios221/labs/rnaseq/lab_4_rnaseq.html
+
+First we will prepare the data and calculate the dispersion so we will next be able to find the differential expression
+```{r}
+d <- DGEList(counts=t(intCountData),group=property$METASTATIC)
+dim(d)
+d.full <- d # keep the old one in case we mess up
+head(d$counts)
+apply(d$counts, 2, sum)
+#filtering steps for DESeq
+keep <- rowSums(cpm(d)>100) >= 2
+d <- d[keep,]
+dim(d) #cuts down about 600 genes
+d$samples$lib.size <- colSums(d$counts)
+d <- calcNormFactors(d)
+d1 <- estimateCommonDisp(d, verbose=T)
+d1 <- estimateTagwiseDisp(d1)
+plotBCV(d1)
+```
+
+
+We will now use our information from the dispersion calculation to check for differential expression and then compare to the results from DESeq.
+```{r}
+et12 <- exactTest(d1, pair=c(1,2))
+topTags(et12, n=10)
+de1 <- decideTestsDGE(et12, adjust.method="BH", p.value=0.05)
+summary(de1)
+de1tags12 <- rownames(d1)[as.logical(de1)] 
+plotSmear(et12, de.tags=de1tags12)
+abline(h = c(-2, 2), col = "blue")
+
+tags <- topTags(et12, n=Inf)
+top_genes <- rownames(tags$table)[tags$table$FDR < 0.05 & abs(tags$table$logFC) > 1]
+```
+
+
+
+```{r}
+sum(top_genes %in% rownames(resSig))
+matching_genes <- top_genes[top_genes %in% rownames(resSig)]
+for (gene in matching_genes) {
+  cat(gene, "\n")
+}
+```
+
+
+We can see that there are 85 genes in common between the results from DESeq and from EdgeR. When we plug in the overlapping genes into ShinyGO, we see pathways enriched for receptor interactions, cancer, adhesion, and signaling pathways, which make sense given the biological basis of  metastasis. 
+
+
 
