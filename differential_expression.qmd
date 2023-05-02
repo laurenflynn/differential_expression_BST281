@@ -51,33 +51,28 @@ keep <- rowSums(counts(dds)) >= 10
 dds <- dds[keep,]
 ```
 
-To distinguish between metastatic and non-metatstatic samples we will relevel the factor where the reference is non-metastatic, here coded as false. 
-
-```{r}
-dds$METASTATIC <- relevel(dds$METASTATIC, ref = "False")
-
-```
-
 Next we will run DESeq to get the differentially expressed genes.
-```{r}
+
+```{r deseq steps}
+dds$METASTATIC <- relevel(dds$METASTATIC, ref = "False")
 dds <- DESeq(dds)
-adj_pval_threshold <- 0.01
+adj_pval_threshold <- 0.05
 res <- results(dds, alpha = adj_pval_threshold)
 summary(res)
 resultsNames(dds)
 DESeq2::plotMA(res)
 resOrdered <- res[order(res$padj),]
-resSig <- subset(resOrdered, padj < 0.01)
+resSig <- subset(resOrdered, padj < 0.05)
+resSig <- subset(resSig, abs(log2FoldChange) > 1)
+nrow(resSig) #113 genes
 gene_names <- rownames(resSig)
-for (gene in gene_names) {
-  cat(gene, "\n")
-} #running these genes through ShinyGO shows cancer and metabolism pathways http://bioinformatics.sdstate.edu/go/
+#uncomment the following lines to get a printed list to input for ShinyGO
+# for (gene in gene_names) {
+#   cat(gene, "\n")
+# } #running these genes through ShinyGO shows cancer and metabolism pathways http://bioinformatics.sdstate.edu/go/
 ```
 
-```{r}
-write.csv(as.data.frame(resOrdered), 
-          file="metastasis_results.csv")
-```
+
 
 
 
@@ -96,8 +91,7 @@ First we will prepare the data and calculate the dispersion so we will next be a
 ```{r}
 d <- DGEList(counts=t(intCountData),group=property$METASTATIC)
 dim(d)
-d.full <- d # keep the old one in case we mess up
-head(d$counts)
+#head(d$counts)
 apply(d$counts, 2, sum)
 #filtering steps for DESeq
 keep <- rowSums(cpm(d)>100) >= 2
@@ -125,18 +119,28 @@ tags <- topTags(et12, n=Inf)
 top_genes <- rownames(tags$table)[tags$table$FDR < 0.05 & abs(tags$table$logFC) > 1]
 ```
 
+## Compare DESeq and EdgeR
 
 
-```{r}
-sum(top_genes %in% rownames(resSig))
-matching_genes <- top_genes[top_genes %in% rownames(resSig)]
-for (gene in matching_genes) {
-  cat(gene, "\n")
-}
+```{r genes identified in DESeq and EdgeR}
+sum(top_genes %in% rownames(resSig)) #106 of 113 genes match
+sum(rownames(resSig) %in% top_genes) #106; serves as a check
+gene <- top_genes[top_genes %in% rownames(resSig)]
+#the output of the following lines is very long so it will be omitted from our rendered document
+#to get the list of genes for ShinyGO please uncomment the following lines:
+# for (gene_name in gene) {
+#   cat(gene_name, "\n")
+# }
 ```
 
 
-We can see that there are 85 genes in common between the results from DESeq and from EdgeR. When we plug in the overlapping genes into ShinyGO, we see pathways enriched for receptor interactions, cancer, adhesion, and signaling pathways, which make sense given the biological basis of  metastasis. 
+We can see that there are 106 genes in common between the results from DESeq and from EdgeR. When we plug in the overlapping genes into ShinyGO, we see pathways enriched for receptor interactions, cancer, adhesion, and signaling pathways, which make sense given the biological basis of  metastasis. 
 
 
+We will use these 106 genes as the differential expression genes for downstream steps in the process. We will use the p-value information from DESeq.
+```{r final dataset}
+res_match <- subset(resSig, rownames(resSig) %in% top_genes)
 
+res_match_df <- cbind(gene,as.data.frame(res_match@listData))
+write.csv(res_match_df,file="data/output/metastasis_results.csv")
+```
