@@ -6,6 +6,12 @@
 .RData
 .RDataTmp
 
+data/
+deseq_files/
+.DS_Store
+*.RProj
+differential_expression_files/
+
 # User-specific files
 .Ruserdata
 
