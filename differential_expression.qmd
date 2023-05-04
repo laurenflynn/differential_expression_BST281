@@ -7,6 +7,8 @@ editor: source
 First we will load the necessary libraries.
 
 
+write.table(counts(ddsMat,normalized = T), file="DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
+
 ```{r load libraries, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(DESeq2)
@@ -76,6 +78,9 @@ gene_names <- rownames(resSig)
 
 
 
+```{r write file}
+write.table(counts(dds,normalized = T), file="data/output/DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
+```
 
 
 
@@ -99,7 +104,7 @@ d <- d[keep,]
 dim(d) #cuts down about 600 genes
 d$samples$lib.size <- colSums(d$counts)
 d <- calcNormFactors(d)
-d1 <- estimateCommonDisp(d, verbose=T)
+d1 <- estimateCommonDisp(d)
 d1 <- estimateTagwiseDisp(d1)
 plotBCV(d1)
 ```
@@ -142,5 +147,5 @@ We will use these 106 genes as the differential expression genes for downstream 
 res_match <- subset(resSig, rownames(resSig) %in% top_genes)
 
 res_match_df <- cbind(gene,as.data.frame(res_match@listData))
-write.csv(res_match_df,file="data/output/metastasis_results.csv")
+# write.csv(res_match_df,file="data/output/metastasis_results.csv")
 ```
