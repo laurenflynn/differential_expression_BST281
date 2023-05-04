@@ -79,7 +79,10 @@ gene_names <- rownames(resSig)
 
 
 ```{r write file}
-write.table(counts(dds,normalized = T), file="data/output/DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
+deseq_normalized_reads <- rbind(t(property),counts(dds,normalized = T))
+colnames(deseq_normalized_reads) <- as.character(unlist(deseq_normalized_reads[1, ]))
+deseq_normalized_reads <- deseq_normalized_reads[-1, ]
+write.table(deseq_normalized_reads, file="data/output/DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
 ```
 
 
