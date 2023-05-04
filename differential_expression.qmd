@@ -83,6 +83,10 @@ deseq_normalized_reads <- rbind(t(property),counts(dds,normalized = T))
 colnames(deseq_normalized_reads) <- as.character(unlist(deseq_normalized_reads[1, ]))
 deseq_normalized_reads <- deseq_normalized_reads[-1, ]
 write.table(deseq_normalized_reads, file="data/output/DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
+
+
+write.csv(resSig,file="data/output/deseq_diff_exp_results.csv")
+
 ```
 
 
@@ -150,5 +154,5 @@ We will use these 106 genes as the differential expression genes for downstream 
 res_match <- subset(resSig, rownames(resSig) %in% top_genes)
 
 res_match_df <- cbind(gene,as.data.frame(res_match@listData))
-# write.csv(res_match_df,file="data/output/metastasis_results.csv")
+write.csv(res_match_df,file="data/output/deseq_edger_overlap_diff_exp_results.csv")
 ```
