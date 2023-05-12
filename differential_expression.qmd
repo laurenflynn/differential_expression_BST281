@@ -7,7 +7,6 @@ editor: source
 First we will load the necessary libraries.
 
 
-write.table(counts(ddsMat,normalized = T), file="DEseq_Normalized.txt",sep="\t",quote = F, col.names = T, row.names = T)
 
 ```{r load libraries, message=FALSE, warning=FALSE}
 library(tidyverse)
@@ -20,18 +19,8 @@ library(edgeR)
 The data has been extracted from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE226134 from the GSE226134_CK_10__norm.xlsx file. Lauren Mock selected for pre-treatment samples and performed data quality control.
 
 ```{r load data, cache=TRUE}
-data <- read.csv("data/input/JoinedWide.csv")
-
-property <- as.data.frame(cbind(data$SegmentDisplayName, data$METASTATIC))
-names(property)=c("SegmentDisplayName","METASTATIC")
-normCountData <- data[,59:ncol(data)]
-row.names(normCountData) <- data$SegmentDisplayName
-```
-
-The data given is normalized, but the properties include a normalization factor that we can divide the data by to get to integer counts, which are required for DESeq. 
-```{r}
-intCountData <- normCountData / data$NormalizationFactor
-intCountData <- data.frame(lapply(intCountData, as.integer))
+intCountData <- read.csv("data/input/Integer_mRNA_counts.csv",row.names=1)
+property <- read.csv("data/input/Patient_properties.csv")
 ```
 
 
@@ -39,7 +28,7 @@ intCountData <- data.frame(lapply(intCountData, as.integer))
 
 
 ```{r}
-dds <- DESeqDataSetFromMatrix(countData = t(intCountData),
+dds <- DESeqDataSetFromMatrix(countData = intCountData,
                               colData = property,
                               design = ~METASTATIC)
 ```
@@ -62,12 +51,29 @@ adj_pval_threshold <- 0.05
 res <- results(dds, alpha = adj_pval_threshold)
 summary(res)
 resultsNames(dds)
-DESeq2::plotMA(res)
+
+
+# get top 5 most differentially expressed genes
+
+DESeq2::plotMA(res, main="Differentially Expressed Genes from DESeq")
 resOrdered <- res[order(res$padj),]
 resSig <- subset(resOrdered, padj < 0.05)
 resSig <- subset(resSig, abs(log2FoldChange) > 1)
 nrow(resSig) #113 genes
 gene_names <- rownames(resSig)
+
+deseqResultsDF <- as.data.frame(resSig@listData)
+deseqResultsDF <- cbind(gene_names, deseqResultsDF)
+
+deseqResultsDF20 <- deseqResultsDF[1:20,]
+
+ggplot(data=deseqResultsDF20, aes(x=gene_names, y=log2FoldChange, fill=log2FoldChange > 0)) +
+  geom_col() +
+  scale_fill_manual(values=c("#F8766D","#619CFF" ), labels=c("Negative", "Positive"), name="Log2FC") +
+  coord_flip() +
+  scale_x_discrete(guide = guide_axis(n.dodge=1)) +
+  labs(x = "Gene Names", y = "Log2 Fold Change", title = "Top 20 Differentially Expressed Genes from DESeq")
+
 #uncomment the following lines to get a printed list to input for ShinyGO
 # for (gene in gene_names) {
 #   cat(gene, "\n")
@@ -77,6 +83,7 @@ gene_names <- rownames(resSig)
 
 
 
+We will save the differential expression from DESeq for the downstream analyses.
 
 ```{r write file}
 deseq_normalized_reads <- rbind(t(property),counts(dds,normalized = T))
@@ -101,7 +108,7 @@ Reference: https://web.stanford.edu/class/bios221/labs/rnaseq/lab_4_rnaseq.html
 
 First we will prepare the data and calculate the dispersion so we will next be able to find the differential expression
 ```{r}
-d <- DGEList(counts=t(intCountData),group=property$METASTATIC)
+d <- DGEList(counts=intCountData,group=property$METASTATIC)
 dim(d)
 #head(d$counts)
 apply(d$counts, 2, sum)
@@ -124,11 +131,15 @@ topTags(et12, n=10)
 de1 <- decideTestsDGE(et12, adjust.method="BH", p.value=0.05)
 summary(de1)
 de1tags12 <- rownames(d1)[as.logical(de1)] 
-plotSmear(et12, de.tags=de1tags12)
+plotSmear(et12, de.tags=de1tags12, main="Differential Expression in edgeR")
 abline(h = c(-2, 2), col = "blue")
 
 tags <- topTags(et12, n=Inf)
 top_genes <- rownames(tags$table)[tags$table$FDR < 0.05 & abs(tags$table$logFC) > 1]
+
+# for (gene_name in top_genes) {
+#   cat(gene_name, "\n")
+# }
 ```
 
 ## Compare DESeq and EdgeR
